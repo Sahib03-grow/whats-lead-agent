@@ -1,0 +1,602 @@
+{
+  "name": "WhatsApp Lead Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "wa-leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "45491036-55d7-47d1-b7fb-a70eff17aa03",
+      "name": "Verify (GET)",
+      "webhookId": "db03cc7c-5e16-479c-a549-40b9d27d14ba"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.verify_token'] === 'change-this-verify-token' ? $json.query['hub.challenge'] : 'forbidden' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "c189161f-a93b-441b-8698-c30517c22980",
+      "name": "Return Challenge"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-leads",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "id": "3521c259-d6ea-4b7d-88b7-9b4e728e41ca",
+      "name": "WhatsApp Events (POST)",
+      "webhookId": "414d592a-9de7-4e9c-ac72-049311d0b293"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ce30bef7-7adb-4dc5-a2d1-d35ce99141a6",
+              "name": "phone_number_id",
+              "value": "PASTE_PHONE_NUMBER_ID",
+              "type": "string"
+            },
+            {
+              "id": "34df67f2-b906-45b3-b708-7b47294cccc6",
+              "name": "wa_token",
+              "value": "PASTE_WHATSAPP_ACCESS_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "574ea4f8-c312-4a1b-9238-73e972e053c7",
+              "name": "approval_mode",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "e1f21c43-6457-46db-8526-6d4fa0bb64e0",
+              "name": "owner_chat_id",
+              "value": "PASTE_TELEGRAM_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "id": "d9e8c1eb-2f59-4817-b91d-76508476dd57",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $input.first().json;\nconst body = cfg.body || {};\nconst base = {phone_number_id: cfg.phone_number_id, wa_token: cfg.wa_token, approval_mode: cfg.approval_mode, owner_chat_id: cfg.owner_chat_id};\nconst sd = $getWorkflowStaticData('global');\nsd.seen = sd.seen || [];\nconst out = [];\nfor (const entry of (body.entry || [])) {\n  for (const ch of (entry.changes || [])) {\n    const v = ch.value || {};\n    const names = {};\n    for (const c of (v.contacts || [])) names[c.wa_id] = (c.profile || {}).name || '';\n    for (const m of (v.messages || [])) {\n      if (sd.seen.includes(m.id)) continue;\n      sd.seen.push(m.id);\n      const text = m.type === 'text' ? m.text.body : '[' + m.type + ' message]';\n      out.push({json: {...base, sender_id: m.from, profile_name: names[m.from] || '', text}});\n    }\n  }\n}\nsd.seen = sd.seen.slice(-200);\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "id": "865cd2cd-a7b5-40b1-8259-5fd3a9408cd5",
+      "name": "Parse Event"
+    },
+    {
+      "parameters": {
+        "jsCode": "const BIZ = {\n  name: 'YOUR BUSINESS NAME',\n  type: 'gym / clinic / salon / coaching class',\n  owner: 'OWNER NAME',\n  services: 'Service 1 - Rs ___; Service 2 - Rs ___',\n  timings: 'Mon-Sat 9am-8pm',\n  address: 'Your address / area',\n  booking_link: 'https://your-booking-link'\n};\nconst SYSTEM = `You are the WhatsApp assistant for ${BIZ.name}, a ${BIZ.type}. Owner: ${BIZ.owner}.\n\n# Language and tone\n- Reply in the customer's language (Hindi, Hinglish or English). Mirror them.\n- Friendly and short (2-4 lines), max 1-2 emojis. Sound like a helpful staff member, not a robot.\n\n# Business info (the only source of truth)\nServices and prices: ${BIZ.services}\nTimings: ${BIZ.timings}\nAddress: ${BIZ.address}\nBooking link: ${BIZ.booking_link}\n\n# Your job\n1. Answer questions using only the business info above. If the answer is not there, do not guess: escalate.\n2. Qualify the lead, one question at a time: what they need, budget, preferred day and time, area.\n3. When they are ready, share the booking link or say the owner will call them.\n4. Fill the \"lead\" fields as you learn them.\n\n# Never\n- No medical, legal or financial advice. No guaranteed results. No invented prices, offers or availability.\n- Do not pressure the customer.\n- For non-text messages (image, audio, location, document): politely ask them to type their question. If it looks like a complaint or payment proof, escalate.\n\n# Escalate (escalate=true) when\n- Complaint, refund, payment problem, or an angry customer\n- Any medical or emergency mention\n- The customer asks for the owner or a human\n- The information is not available above\n\n# Output: valid JSON only, nothing else\n{\"reply\": \"message to send\", \"escalate\": false, \"escalate_reason\": \"\", \"lead\": {\"name\": \"\", \"need\": \"\", \"budget\": \"\", \"preferred_time\": \"\", \"location\": \"\", \"interested\": false}}\nLeave unknown lead fields as empty strings.`;\nconst d = $input.first().json;\nconst sd = $getWorkflowStaticData('global');\nsd.history = sd.history || {};\nlet h = sd.history[d.sender_id] || [];\nh.push({role: 'user', content: d.text});\nh = h.slice(-14);\nwhile (h.length && h[0].role !== 'user') h.shift();\nsd.history[d.sender_id] = h;\nreturn [{json: {...d, claude_body: {model: 'claude-sonnet-5-5', max_tokens: 600, system: SYSTEM, messages: h}}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "id": "26f7486b-7146-411e-b9fc-faa4a13b5fd8",
+      "name": "Build Claude Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "id": "6f412a72-d63e-4a8a-9e56-c641364fb6a5",
+      "name": "Claude"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Build Claude Request').first().json;\nconst raw = $input.first().json.content[0].text || '';\nlet data;\ntry { data = JSON.parse(raw.replace(/^```json|^```|```$/gm, '').trim()); }\ncatch (e) { data = {reply: '', escalate: true, escalate_reason: 'JSON parse error', lead: {}}; }\nconst sd = $getWorkflowStaticData('global');\nlet h = sd.history[ctx.sender_id] || [];\nh.push({role: 'assistant', content: raw});\nsd.history[ctx.sender_id] = h.slice(-14);\nsd.leads = sd.leads || {};\nsd.hot = sd.hot || {};\nconst merged = {...(sd.leads[ctx.sender_id] || {})};\nfor (const [k, v] of Object.entries(data.lead || {})) { if (v || k === 'interested') merged[k] = k === 'interested' ? (merged[k] || !!v) : v; }\nsd.leads[ctx.sender_id] = merged;\nconst save_lead = Object.entries(merged).some(([k, v]) => k !== 'interested' && v);\nconst hot = !!merged.interested && !sd.hot[ctx.sender_id];\nif (hot) sd.hot[ctx.sender_id] = true;\nreturn [{json: {...ctx, claude_body: undefined,\n  reply: data.reply || 'Main aapka message owner ko forward kar raha hu, wo jald reply karenge.',\n  escalate: !!data.escalate, escalate_reason: data.escalate_reason || '',\n  lead: merged, save_lead, hot, time: new Date().toISOString().slice(0, 16).replace('T', ' ')}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "id": "d9689a99-2180-41f6-a31c-c32b9fda5656",
+      "name": "Parse Reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.save_lead }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        520
+      ],
+      "id": "7d27f956-b03e-48bf-ba63-15c016cfae3b",
+      "name": "Has Lead Info?"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "time": "={{ $json.time }}",
+            "phone": "={{ $json.sender_id }}",
+            "whatsapp_name": "={{ $json.profile_name }}",
+            "name": "={{ $json.lead.name }}",
+            "need": "={{ $json.lead.need }}",
+            "budget": "={{ $json.lead.budget }}",
+            "preferred_time": "={{ $json.lead.preferred_time }}",
+            "location": "={{ $json.lead.location }}",
+            "interested": "={{ $json.lead.interested }}"
+          },
+          "matchingColumns": [
+            "phone"
+          ],
+          "schema": [
+            {
+              "id": "time",
+              "displayName": "time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "whatsapp_name",
+              "displayName": "whatsapp_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "need",
+              "displayName": "need",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "preferred_time",
+              "displayName": "preferred_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "interested",
+              "displayName": "interested",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        520
+      ],
+      "id": "ca4cfc1c-2319-41dc-8466-938dc880e28c",
+      "name": "Save Lead"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hot }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        660
+      ],
+      "id": "d0c10820-81bb-4d27-9a2d-a5a61c3e3e6c",
+      "name": "Hot Lead?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.owner_chat_id }}",
+        "text": "=🔥 Hot lead\n{{ $json.profile_name }} (https://wa.me/{{ $json.sender_id }})\nNeed: {{ $json.lead.need }}\nBudget: {{ $json.lead.budget }}\nPreferred time: {{ $json.lead.preferred_time }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        660
+      ],
+      "id": "410694b0-d7aa-4394-a732-fe66cc9c8e5f",
+      "name": "Telegram: Hot Lead",
+      "webhookId": "9c569a30-b79f-44f4-822b-34b73174348f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.escalate }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        300
+      ],
+      "id": "35b0b7ee-7f00-42a5-910f-92e37b332201",
+      "name": "Escalate?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.owner_chat_id }}",
+        "text": "=⚠️ ESCALATED ({{ $json.escalate_reason }})\n{{ $json.profile_name }} (https://wa.me/{{ $json.sender_id }})\nCustomer: {{ $json.text }}\nDraft: {{ $json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        200
+      ],
+      "id": "ea8d7c38-3ee9-4ea5-bd54-d9b7f3e189af",
+      "name": "Telegram: Escalation",
+      "webhookId": "f6c967f5-aa5b-4145-8c08-8e8ddd6c3067"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.approval_mode }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        360
+      ],
+      "id": "413530fb-6c38-45a1-85dc-7209982faec9",
+      "name": "Approval Mode?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.owner_chat_id }}",
+        "text": "=📩 Draft reply\n{{ $json.profile_name }} (https://wa.me/{{ $json.sender_id }})\nCustomer: {{ $json.text }}\nDraft: {{ $json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        300
+      ],
+      "id": "e2b6f963-1c4b-4cf0-b30b-cf86d325ee89",
+      "name": "Telegram: Draft Reply",
+      "webhookId": "1cace3a8-fe39-4746-8eb6-2be8ae9707d1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.phone_number_id }}/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({messaging_product: 'whatsapp', to: $json.sender_id, type: 'text', text: {body: $json.reply}}) }}",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.wa_token }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        440
+      ],
+      "id": "1ea0e832-340c-4d8f-9faf-367d91c2ee39",
+      "name": "Send WhatsApp Reply"
+    }
+  ],
+  "connections": {
+    "Verify (GET)": {
+      "main": [
+        [
+          {
+            "node": "Return Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Events (POST)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Parse Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Event": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Request": {
+      "main": [
+        [
+          {
+            "node": "Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reply": {
+      "main": [
+        [
+          {
+            "node": "Has Lead Info?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Hot Lead?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Escalate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Lead Info?": {
+      "main": [
+        [
+          {
+            "node": "Save Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Hot Lead?": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Escalate?": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approval Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Mode?": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
